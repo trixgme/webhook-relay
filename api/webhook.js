@@ -17,8 +17,13 @@ function decodeJwtPayload(token) {
   }
 }
 
-function now() {
-  return new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+function now(date) {
+  const d = date ? new Date(date) : new Date();
+  const y = d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric' });
+  const m = d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit' });
+  const day = d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', day: '2-digit' });
+  const time = d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  return `${y} ${m} ${day} ${time}`;
 }
 
 function sendToTeams(card, source) {
@@ -120,9 +125,7 @@ const handlers = {
     if (body.data) {
       const { type, id, attributes } = body.data;
       const info = APPLE_TYPES[type] || { icon: 'ℹ️', label: type, color: '0078D7' };
-      const ts = attributes?.timestamp
-        ? new Date(attributes.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
-        : now();
+      const ts = attributes?.timestamp ? now(attributes.timestamp) : now();
 
       const facts = [
         { name: '타입', value: `${info.icon} ${info.label}` },
