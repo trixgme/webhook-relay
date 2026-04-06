@@ -43,40 +43,119 @@ function sendToTeams(card, source) {
   });
 }
 
+// App Store Connect 알림 타입 매핑
+const APPLE_TYPES = {
+  // Ping
+  webhookPingCreated: { icon: '🏓', label: 'Ping 테스트', color: '808080' },
+  // 앱 상태
+  appStatusChanged: { icon: '📱', label: '앱 상태 변경', color: '0078D7' },
+  // 빌드
+  buildCreated: { icon: '🔨', label: '빌드 생성', color: '0078D7' },
+  buildProcessingComplete: { icon: '✅', label: '빌드 처리 완료', color: '00CC00' },
+  buildProcessingFailed: { icon: '❌', label: '빌드 처리 실패', color: 'FF0000' },
+  // 심사
+  reviewSubmissionCreated: { icon: '📤', label: '심사 제출', color: 'FFA500' },
+  reviewSubmissionApproved: { icon: '✅', label: '심사 승인', color: '00CC00' },
+  reviewSubmissionRejected: { icon: '❌', label: '심사 거절', color: 'FF0000' },
+  // 인앱 구매
+  subscriptionCreated: { icon: '🟢', label: '구독 생성', color: '00CC00' },
+  subscriptionRenewed: { icon: '🔄', label: '구독 갱신', color: '0078D7' },
+  subscriptionExpired: { icon: '⛔', label: '구독 만료', color: 'FF0000' },
+  subscriptionRevoked: { icon: '🚫', label: '구독 취소', color: 'FF0000' },
+  refundRequested: { icon: '💸', label: '환불 요청', color: 'FFA500' },
+  // 테스트
+  testNotification: { icon: '🧪', label: '테스트 알림', color: '808080' },
+};
+
+// App Store Server Notifications V2 (signedPayload) 타입 매핑
+const APPLE_SERVER_TYPES = {
+  SUBSCRIBED: { icon: '🟢', label: '구독 시작', color: '00CC00' },
+  DID_RENEW: { icon: '🔄', label: '구독 갱신', color: '0078D7' },
+  DID_CHANGE_RENEWAL_STATUS: { icon: '⚙️', label: '갱신 상태 변경', color: 'FFA500' },
+  DID_FAIL_TO_RENEW: { icon: '🔴', label: '갱신 실패', color: 'FF0000' },
+  EXPIRED: { icon: '⛔', label: '구독 만료', color: 'FF0000' },
+  REFUND: { icon: '💸', label: '환불', color: 'FFA500' },
+  CONSUMPTION_REQUEST: { icon: '📋', label: '소비 요청', color: '0078D7' },
+  TEST: { icon: '🧪', label: '테스트', color: '808080' },
+  REVOKE: { icon: '🚫', label: '취소', color: 'FF0000' },
+  GRACE_PERIOD_EXPIRED: { icon: '⏰', label: '유예기간 만료', color: 'FF0000' },
+  OFFER_REDEEMED: { icon: '🎁', label: '오퍼 사용', color: '00CC00' },
+  PRICE_INCREASE: { icon: '💰', label: '가격 인상', color: 'FFA500' },
+};
+
 // 소스별 카드 빌더
 const handlers = {
   apple(body) {
-    const { signedPayload } = body;
-    if (!signedPayload) return null;
+    // App Store Server Notifications V2 (signedPayload 방식)
+    if (body.signedPayload) {
+      const payload = decodeJwtPayload(body.signedPayload);
+      if (!payload) return null;
 
-    const payload = decodeJwtPayload(signedPayload);
-    if (!payload) return null;
+      const type = payload.notificationType || 'UNKNOWN';
+      const subtype = payload.subtype || '';
+      const data = payload.data || {};
+      const info = APPLE_SERVER_TYPES[type] || { icon: 'ℹ️', label: type, color: '0078D7' };
 
-    const type = payload.notificationType || 'UNKNOWN';
-    const subtype = payload.subtype || '';
-    const data = payload.data || {};
-    const icons = {
-      SUBSCRIBED: '🟢', DID_RENEW: '🔄', DID_CHANGE_RENEWAL_STATUS: '⚙️',
-      DID_FAIL_TO_RENEW: '🔴', EXPIRED: '⛔', REFUND: '💸',
-      CONSUMPTION_REQUEST: '📋', TEST: '🧪',
-    };
+      const facts = [
+        { name: '타입', value: `${info.icon} ${info.label}` },
+        ...(subtype ? [{ name: '세부', value: subtype }] : []),
+        { name: 'Bundle ID', value: data.bundleId || '-' },
+        { name: '환경', value: data.environment || '-' },
+      ];
 
-    return {
-      '@type': 'MessageCard',
-      '@context': 'https://schema.org/extensions',
-      themeColor: type.includes('FAIL') || type === 'EXPIRED' ? 'FF0000' : '0078D7',
-      summary: `Apple: ${type}`,
-      sections: [{
-        activityTitle: `${icons[type] || 'ℹ️'} App Store: ${type}`,
-        activitySubtitle: now(),
-        facts: [
-          { name: 'Type', value: type },
-          ...(subtype ? [{ name: 'Subtype', value: subtype }] : []),
-          { name: 'Bundle ID', value: data.bundleId || '-' },
-          { name: 'Environment', value: data.environment || '-' },
-        ],
-      }],
-    };
+      return {
+        '@type': 'MessageCard',
+        '@context': 'https://schema.org/extensions',
+        themeColor: info.color,
+        summary: `Apple: ${info.label}`,
+        sections: [{
+          activityTitle: `🍎 App Store Server: ${info.label}`,
+          activitySubtitle: now(),
+          facts,
+        }],
+      };
+    }
+
+    // App Store Connect API 웹훅 (일반 JSON 방식)
+    if (body.data) {
+      const { type, id, attributes } = body.data;
+      const info = APPLE_TYPES[type] || { icon: 'ℹ️', label: type, color: '0078D7' };
+      const ts = attributes?.timestamp
+        ? new Date(attributes.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
+        : now();
+
+      const facts = [
+        { name: '타입', value: `${info.icon} ${info.label}` },
+        { name: 'ID', value: id || '-' },
+        { name: '시각', value: ts },
+      ];
+
+      // attributes에 추가 정보가 있으면 표시
+      if (attributes) {
+        Object.entries(attributes).forEach(([key, value]) => {
+          if (key === 'timestamp') return;
+          if (typeof value === 'object') {
+            facts.push({ name: key, value: JSON.stringify(value) });
+          } else {
+            facts.push({ name: key, value: String(value) });
+          }
+        });
+      }
+
+      return {
+        '@type': 'MessageCard',
+        '@context': 'https://schema.org/extensions',
+        themeColor: info.color,
+        summary: `Apple: ${info.label}`,
+        sections: [{
+          activityTitle: `🍎 App Store Connect: ${info.label}`,
+          activitySubtitle: ts,
+          facts,
+        }],
+      };
+    }
+
+    return null;
   },
 
   fallback(body, source) {
